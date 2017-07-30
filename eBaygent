@@ -115,6 +115,7 @@ info "eBaygent is running..."
 debug "__dir: ${__dir}"
 debug "__base: ${__base}"
 
+# TODO: do something better here
 for (( i = 0; i <= $(wc -l < db.txt); i++ )); do
     line=$(sed "$((i+1))q;d" db.txt)
     [[ -z $line ]] && continue
@@ -150,11 +151,17 @@ for (( i = 0; i <= $(wc -l < db.txt); i++ )); do
     # TODO: break on certain number of attempts
     while ! [[ $newPrice =~ ^[0-9]+([.][0-9]+)?$ ]]; do
         _wgetOutput=$(wget ${_urlCustomized} --save-cookies cookies.txt --keep-session-cookies --load-cookies cookies.txt -qO-)
-        _wgetInfo=$(echo "$_wgetOutput" | grep -A15 '"lvprice prc"' -m1 | sed ':a;N;$!ba;s/[\r\n\t]//g' | sed 's:</b>::')
 
-        debug _wgetInfo: ${_wgetInfo}
+        # Skips items with price ranges
+        _wgetInfo='"prRange"' # Catchy workaround
+        m=0
+        while [[ $(echo "${_wgetInfo}" | grep -c '"prRange"') -eq 1 ]]; do
+            m=$((m+1))
+            _wgetInfo=$(echo "$_wgetOutput" | grep -A13 '"lvprice prc"' -m$m | tail -n14 | sed ':a;N;$!ba;s/[\r\n\t]//g' | sed 's:</b>::')
+            debug _wgetInfo: ${_wgetInfo}
+        done
+
         # Parses output
-        # TODO: skip products with price ranges
         if [[ $_wgetInfo =~ .*\"fee\".* ]]; then
             # Adds shipping cost
             _itemPrice=$(echo ${_wgetInfo} | sed 's/^.*\$\([0-9][0-9]*[,.]*[0-9][0-9]*\).*\$\([0-9][0-9]*[,.]*[0-9][0-9]*\).*$/\1/')
