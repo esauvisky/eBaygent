@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+## Author: Emiliano Sauvisky (esauvisky@gmail.com)
+## Name: eBaygent
+## Description: Checks periodically for lower prices on eBay searches.
+## Version: 2.3
+
+## Variáveis
+LOG_LEVEL="${LOG_LEVEL:-6}"
+__deps=( "sed" "grep" "wget" "realpath" "xdg-open" )
+#__chars=$(python2 -c 'print u"\u0091\u0092\u00a0\u200E".encode("utf8")')
+
+#############################################################################
+####### Funções e configurações (normalmente não é necessário editar) #######
+#############################################################################
+## Parâmetros posicionais do bash
+set -o errexit  # Exit on error. Append "|| true" if you expect an error.
+set -o errtrace # Exit on error inside any functions or subshells.
+set -o nounset  # Do not allow use of undefined vars. Use ${VAR:-} to use an undefined VAR
+#set -o pipefail # Catch the error in case mysqldump fails (but gzip succeeds) in `mysqldump |gzip`
+#set -o xtrace  # Turn on traces, useful while debugging.
+
+## Variáveis mágicas
+__dir="$(cd "$(dirname $(realpath "${BASH_SOURCE[0]}"))" && pwd)"
+__base=$(basename "${BASH_SOURCE[0]}")
+
+## Pre-Setup
+cd ${__dir}
+[[ -f cookies.txt ]] && rm cookies.txt
+[[ -f db_new.txt ]] && rm db_new.txt
+showURLs=false
+
+function rawURLDecode() {
+    if read -t 0.1 STDIN; then
+        printf -v decoded '%b' "${STDIN//%/\\x}"
+    else
+        printf -v decoded '%b' "${*//%/\\x}"
+    fi
+    echo "${decoded}"
+}
+
+## Funções de Logging
+function __log () {
+    local log_level="${1}"; shift; local color_debug="\x1b[35m"; local color_info="\x1b[32m"; local color_notice="\x1b[34m"; local color_warning="\x1b[33m"; local color_error="\x1b[31m"; local color_critical="\x1b[1;31m"; local color_alert="\x1b[1;33;41m"; local color_emergency="\x1b[1;4;5;33;41m"; local colorvar="color_${log_level}"; local color="${!colorvar:-$color_error}"; local color_reset="\x1b[0m"; local log_line=""
+    while IFS=$'\n' read -r log_line; do
+        echo -e "${__base}: ${color}$(printf "[%9s]" ${log_level})${color_reset} $log_line" 1>&2
+    done <<< "${@:-}"
+}
+function emergency () {                                $(__log emergency "${@}") || true; exit 1; }
+function alert ()     { [ "${LOG_LEVEL:-0}" -ge 1 ] && $(__log alert "${@}") || true; exit 1; }
+function critical ()  { [ "${LOG_LEVEL:-0}" -ge 2 ] && $(__log critical "${@}") || true; exit 1; }
+function error ()     { [ "${LOG_LEVEL:-0}" -ge 3 ] && $(__log error "${@}") || true; }
+function warning ()   { [ "${LOG_LEVEL:-0}" -ge 4 ] && $(__log warning "${@}") || true; }
+function notice ()    { [ "${LOG_LEVEL:-0}" -ge 5 ] && $(__log notice "${@}") || true; }
+function info ()      { [ "${LOG_LEVEL:-0}" -ge 6 ] && $(__log info "${@}") || true; }
+function debug ()     { [ "${LOG_LEVEL:-0}" -ge 7 ] && $(__log debug "${@}") || true; }
+
+## Verifica se dependências existem em $PATH
+for dep in ${__deps[@]}; do
+    hash $dep &>/dev/null || emergency "$dep was not found. Please install it and try again.";
+done
+
+#############################################################################
+#######                           Argumentos                          #######
+#############################################################################
+function usage {
+    echo -e "Usage: ${__base} [OPTIONS]"
+    echo -e "\nOptions:"
+    echo -e "  -h, --help               This page."
+    echo -e "  -u, --urls               Opens all URLs with default browser."
+    echo -e "  -a, --add [URL]          Adds new search to the database."
+}
+for (( n = 1; n <= $#; n++ )); do
+    case "${!n}" in
+        -h | --help )
+            usage
+            exit ;;
+        -u | --urls )
+            showURLs=true ;;
+        -a | --add )
+            let n+=1; [[ ${n} -gt $# ]] && let n-=1
+            if [[ ${!n} =~ ^https*://.*ebay\.com.+$ ]]; then
+                _url=${!n}
+            else
+                _primary=$(xclip -o -selection primary) #| sed 's/['"$__chars"']//g')
+                _clipboard=$(xclip -o -selection clipboard) # | sed 's/['"$__chars"']//g')
+                debug "_primary: $_primary"
+                debug "_clipboard: $_clipboard"
+                if   [[ "$_primary" =~ ^https*://.*ebay\.com.+$ ]]; then
+                    _url="$_primary"
+                elif [[ "$_clipboard" =~ ^https*://.*ebay\.com.+$ ]]; then
+                    _url="$_clipboard"
+                else
+                    notify-send "URL is not an eBay link!"
+                    critical "URL is not an eBay link!"
+                fi
+            fi
+            debug "_url: $_url"
+            echo "0.0,$_url" >> db.txt
+            notify-send "Added to db.txt" -u low -t 1000
+            notice "Added link to db.txt"
+            exit ;;
+        * )
+            error "Invalid option ${!n}"
+            usage
+            exit ;;
+    esac
+done
+
+#############################################################################
+#######                  Runtime (Código Principal)                   #######
+#############################################################################
+
+[[ "$(pgrep -fn $0)" -ne "$(pgrep -fo $0)" ]] && critical "More than one instance is running!"
+info "eBaygent is running..."
+debug "__dir: ${__dir}"
+debug "__base: ${__base}"
+
+for (( i = 1; i <= $(wc -l < db.txt); i++ )); do
+    line=$(sed "${i}q;d" db.txt)
+    debug "line: $line"
+
+    # Next lines customizes things like show price in dollars, 200 results and other information.
+    # It's the first network request (check chrome dev tools) when changing settings.
+    # Needs a custom escaped URL to work (see url_escape.sed)
+    # TODO: teoricamente so precisaria rodar o url de customizar uma só vez e depois passar a usar os mesmos cookies/headers ou algo assim
+    _urlOriginal=$(echo "$line" | cut -d, -f2)
+    _urlEscaped=$(echo "$line" | cut -d, -f2 | sed -f url_escape.sed)
+    _urlCustomized='http://www.ebay.com/sch/FindingCustomization/?_fcsp='${_urlEscaped}'&_fcsbm=1&_pppn=v3&_fcdm=1&_fcss=15&_fcps=3&_fcippl=4&_fcpe=3|2|5|4|7&_fcso=1&_fcie=36|1&_fcse=42|43|10&_fcpd=0'
+    debug "_urlOriginal: ${_urlOriginal}"
+    debug "_urlCustomized: ${_urlCustomized}"
+    debug "_urlEscaped: ${_urlEscaped}"
+
+    # Fetches the page with wget
+    #productName=$(echo "$line" | cut -d, -f2)
+    #productName=$(rawURLDecode ${productName})
+    #productName=$(echo ${productName} | sed 's/..*_nkw=\(..*\)$/\1/;s/&.*$//;s/+/ /g' | tr '[:lower:]' '[:upper:]')
+    productName=$(echo "$line" | cut -d, -f2 | sed 's/..*_nkw=\(..*\)$/\1/;s/&.*$//;s/+/ /g;s/ -[a-zA-Z0-9][a-zA-Z0-9]*//g' | tr '[:lower:]' '[:upper:]')
+    productName=$(rawURLDecode "${productName}") # mais robusto que pipeando
+    newPrice=false
+
+    # If showURLs is true, open all searches in google chrome and skip this loop
+    if [[ $showURLs == true ]]; then
+        notice "Opening URL for search: ${productName}"
+        xdg-open "${_urlOriginal}" &>/dev/null
+        continue
+    fi
+
+
+    # Loop until price is a valid number (for eventual wget problems)
+    while ! [[ $newPrice =~ ^[0-9]+([.][0-9]+)?$ ]]; do
+        _wgetOutput=$(wget ${_urlCustomized} --save-cookies cookies.txt --keep-session-cookies --load-cookies cookies.txt -qO-)
+        _wgetInfo=$(echo "$_wgetOutput" | grep -A15 '"lvprice prc"' -m1 | sed ':a;N;$!ba;s/[\r\n\t]//g' | sed 's:</b>::')
+        #DEBUGC=$((DEBUGC+1))
+        #echo "$_wgetOutput" > "$productName-$DEBUGC".html
+
+        # Parses output
+        # TODO: skip products with price ranges
+        if [[ $_wgetInfo =~ .*\"fee\".* ]]; then
+            # adds shipping cost
+            _itemPrice=$(echo ${_wgetInfo} | sed 's/^.*\$\([0-9][0-9]*[,.]*[0-9][0-9]*\).*\$\([0-9][0-9]*[,.]*[0-9][0-9]*\).*$/\1/')
+            _itemShipping=$(echo ${_wgetInfo} | sed 's/^.*\$\([0-9][0-9]*[,.]*[0-9][0-9]*\).*\$\([0-9][0-9]*[,.]*[0-9][0-9]*\).*$/\2/')
+            _itemPrice=${_itemPrice/,/.}
+            _itemShipping=${_itemShipping/,/.}
+            newPrice=$(echo "scale=2; $_itemPrice + $_itemShipping" | bc)
+        else
+            newPrice=$(echo ${_wgetInfo} | sed 's/^.*\$\([0-9][0-9]*[,.]*[0-9][0-9]*\).*/\1/')
+            newPrice=${newPrice/,/.}
+        fi
+    done
+
+    # Prints out information
+    lastPrice=$(echo "$line" | cut -d, -f1)
+    # TODO: checks for percentual difference and skips less than 5%
+    if [[ $(echo $lastPrice'==0' | bc -l) -eq 1 ]]; then
+        notice "${productName} was recently added. New price is \$${newPrice}."
+
+        notify-send "$productName was recently added to eBaygent." \
+                    "Current lowest price: \$$newPrice" \
+                    -i emblem-default -u normal
+
+        # Exports values to db_new
+        echo "${newPrice},${_urlOriginal}" >> db_new.txt
+    elif [[ $(echo $newPrice'<'$lastPrice | bc -l) -eq 1 ]]; then
+        shortURL=$(shortenurl "$_urlOriginal")
+
+        notice "${productName} has a new cheaper product at \$${newPrice} (from \$${lastPrice})!"
+
+        # Watch out below...
+        if [[ $(echo $newPrice'<0.95*'$lastPrice | bc -l) -eq 1 ]]; then
+            notice "${productName} URL is ${shortURL}." # only shortens url if 5% or more
+            notify-send "$productName has a new cheaper product at \$$newPrice!" \
+                        "The URL is $shortURL\nOld Product: \$$lastPrice \t New Product: \$$newPrice" \
+                        -i emblem-default -u critical
+        fi
+
+        # Exports values to db_new
+        echo "${newPrice},${_urlOriginal}" >> db_new.txt
+    # TODO: if price goes up, update last value but only notify if less than historic low
+    elif [[ $(echo $newPrice'>'$lastPrice | bc -l) -eq 1 ]]; then
+        notice "${productName} cheapest product has increased from \$${lastPrice} to \$${newPrice}."
+
+        # Watch out below...
+        if [[ $(echo $newPrice'>1.05*'$lastPrice | bc -l) -eq 1 ]]; then
+            notify-send "$productName is now more expensive." \
+                        "Old Product: \$$lastPrice \t New Product: \$$newPrice" \
+                        -i emblem-default -u low
+        fi
+
+        # Exports values to db_new
+        echo "${newPrice},${_urlOriginal}" >> db_new.txt
+    else
+        info "${productName} has a product still at \$${lastPrice}."
+        #OLD METHOD: [[ $showURLs == true ]] && shortURL=$(shortenurl "$_urlOriginal") && info "${productName} URL is ${shortURL}."
+
+        # Exports values to db_new
+        echo "${lastPrice},${_urlOriginal}" >> db_new.txt
+    fi
+done
+
+if [[ $showURLs == false ]]; then
+    # Replace db
+    mv db_new.txt db.txt
+
+    # Remove session cookies
+    rm cookies.txt
+fi
