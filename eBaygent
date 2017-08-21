@@ -25,8 +25,6 @@ __base=$(basename "${BASH_SOURCE[0]}")
 
 ## Pre-Setup
 cd ${__dir}
-[[ -f cookies.txt ]] && rm cookies.txt
-[[ -f db_new.txt ]] && rm db_new.txt
 showURLs=false
 
 function rawURLDecode() {
@@ -53,6 +51,9 @@ function warning ()   { [ "${LOG_LEVEL:-0}" -ge 4 ] && $(__log warning "${@}") |
 function notice ()    { [ "${LOG_LEVEL:-0}" -ge 5 ] && $(__log notice "${@}") || true; }
 function info ()      { [ "${LOG_LEVEL:-0}" -ge 6 ] && $(__log info "${@}") || true; }
 function debug ()     { [ "${LOG_LEVEL:-0}" -ge 7 ] && $(__log debug "${@}") || true; }
+
+## Checks if another instance is running.
+[[ "$(pgrep -fn $0)" -ne "$(pgrep -fo $0)" ]] && critical "More than one instance is running!"
 
 ## Verifica se dependências existem em $PATH
 for dep in ${__deps[@]}; do
@@ -110,10 +111,17 @@ done
 #######                  Runtime (Código Principal)                   #######
 #############################################################################
 
-[[ "$(pgrep -fn $0)" -ne "$(pgrep -fo $0)" ]] && critical "More than one instance is running!"
-info "eBaygent is running..."
+info "eBaygent is running... $(wc -l < db.txt) entries on database."
 debug "__dir: ${__dir}"
 debug "__base: ${__base}"
+if [[ -f cookies.txt ]]; then
+    error 'File cookies.txt already exists! Deleting file.'
+    rm cookies.txt
+fi
+if [[ -f db_new.txt ]]; then
+    error 'File db_new.txt already exists! Deleting file.'
+    rm db_new.txt
+fi
 
 # TODO: do something better here
 for (( i = 0; i <= $(wc -l < db.txt); i++ )); do
