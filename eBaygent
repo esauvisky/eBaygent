@@ -2,12 +2,16 @@
 ## Author: Emiliano Sauvisky (esauvisky@gmail.com)
 ## Name: eBaygent
 ## Description: Checks periodically for lower prices on eBay searches.
-## Version: 2.3
+## Version: 2.5
 
-## Variáveis
-LOG_LEVEL="${LOG_LEVEL:-6}"
+## TODO: Transformar este script em um monitorador de preços,
+## mantendo um histórico dos preços de cada item. Desta forma,
+## é possível plotar gráficos e fazer o double-check anti-spam
+## de maneira mais seamless.
+
+## Constantes
+LOG_LEVEL="${LOG_LEVEL:-7}"
 __deps=( "sed" "grep" "wget" "realpath" "xdg-open" )
-#__chars=$(python2 -c 'print u"\u0091\u0092\u00a0\u200E".encode("utf8")')
 
 #############################################################################
 ####### Funções e configurações (normalmente não é necessário editar) #######
@@ -96,7 +100,7 @@ for (( n = 1; n <= $#; n++ )); do
                 fi
             fi
             debug "_url: $_url"
-            echo "0.0,$_url" >> db.txt
+            echo "$_url,0.0,0.0" >> db.txt
             notify-send "Added to db.txt" -u low -t 1000
             notice "Added link to db.txt"
             exit ;;
@@ -110,7 +114,6 @@ done
 #############################################################################
 #######                  Runtime (Código Principal)                   #######
 #############################################################################
-
 info "eBaygent is running... $(wc -l < db.txt) entries on database."
 debug "__dir: ${__dir}"
 debug "__base: ${__base}"
@@ -123,7 +126,6 @@ if [[ -f db_new.txt ]]; then
     rm db_new.txt
 fi
 
-# TODO: do something better here
 for (( i = 0; i <= $(wc -l < db.txt); i++ )); do
     line=$(sed "$((i+1))q;d" db.txt)
     [[ -z $line ]] && continue
@@ -133,18 +135,15 @@ for (( i = 0; i <= $(wc -l < db.txt); i++ )); do
     # It's the first network request (check chrome dev tools) when changing settings.
     # Needs a custom escaped URL to work (see url_escape.sed)
     # TODO: teoricamente so precisaria rodar o url de customizar uma só vez e depois passar a usar os mesmos cookies/headers ou algo assim
-    _urlOriginal=$(echo "$line" | cut -d, -f2)
-    _urlEscaped=$(echo "$line" | cut -d, -f2 | sed -f url_escape.sed)
+    _urlOriginal=$(echo "$line" | cut -d, -f1)
+    _urlEscaped=$(echo "$line" | cut -d, -f1 | sed -f url_escape.sed)
     _urlCustomized='http://www.ebay.com/sch/FindingCustomization/?_fcsp='${_urlEscaped}'&_fcsbm=1&_pppn=v3&_fcdm=1&_fcss=15&_fcps=3&_fcippl=4&_fcpe=3|2|5|4|7&_fcso=1&_fcie=36|1&_fcse=42|43|10&_fcpd=0'
     debug "_urlOriginal: ${_urlOriginal}"
     debug "_urlCustomized: ${_urlCustomized}"
     debug "_urlEscaped: ${_urlEscaped}"
 
     # Fetches the page with wget
-    #productName=$(echo "$line" | cut -d, -f2)
-    #productName=$(rawURLDecode ${productName})
-    #productName=$(echo ${productName} | sed 's/..*_nkw=\(..*\)$/\1/;s/&.*$//;s/+/ /g' | tr '[:lower:]' '[:upper:]')
-    productName=$(echo "$line" | cut -d, -f2 | sed 's/..*_nkw=\(..*\)$/\1/;s/&.*$//;s/+/ /g;s/ -[a-zA-Z0-9][a-zA-Z0-9]*//g' | tr '[:lower:]' '[:upper:]')
+    productName=$(echo "$line" | cut -d, -f1 | sed 's/..*_nkw=\(..*\)$/\1/;s/&.*$//;s/+/ /g;s/ -[a-zA-Z0-9][a-zA-Z0-9]*//g' | tr '[:lower:]' '[:upper:]')
     productName=$(rawURLDecode "${productName}") # mais robusto que pipeando
     newPrice=false
 
@@ -169,6 +168,8 @@ for (( i = 0; i <= $(wc -l < db.txt); i++ )); do
             debug _wgetInfo: ${_wgetInfo}
         done
 
+
+
         # Parses output
         if [[ $_wgetInfo =~ .*\"fee\".* ]]; then
             # Adds shipping cost
@@ -184,52 +185,51 @@ for (( i = 0; i <= $(wc -l < db.txt); i++ )); do
     done
 
     ## Prints out information
-    lastPrice=$(echo "$line" | cut -d, -f1)
-    # TODO: checks for percentual difference and skips less than 5%
+    doubleCheckPrice=$(echo "$line" | cut -d, -f2)
+    lastPrice=$(echo "$line" | cut -d, -f3)
+    debug "doubleCheckPrice: $doubleCheckPrice"
+    debug "lastPrice: $lastPrice"
+    debug "newPrice: $newPrice"
+
     if [[ $(echo $lastPrice'==0' | bc -l) -eq 1 ]]; then
         notice "${productName} was recently added. New price is \$${newPrice}."
-
         notify-send "$productName was recently added to eBaygent." \
                     "Current lowest price: \$$newPrice" \
                     -i emblem-default -u normal
-
-        # Exports values to db_new
-        echo "${newPrice},${_urlOriginal}" >> db_new.txt
-    elif [[ $(echo $newPrice'<'$lastPrice | bc -l) -eq 1 ]]; then
-        shortURL=$(shortenurl "$_urlOriginal")
-
-        notice "${productName} has a new cheaper product at \$${newPrice} (from \$${lastPrice})!"
-
+    elif [[ $(echo $newPrice'<'$lastPrice'&&'$newPrice'<'$doubleCheckPrice  | bc -l) -eq 1 || \
+            $(echo $newPrice'<'$lastPrice'&&'$newPrice'=='$doubleCheckPrice | bc -l) -eq 1 ]]; then
+        notice "${productName} probably has a new cheaper product at \$${newPrice} (from \$${lastPrice})."
+    elif [[ $(echo $newPrice'=='$lastPrice'&&'$newPrice'<'$doubleCheckPrice | bc -l) -eq 1 ]]; then
+        notice "${productName} has a new cheaper product at \$${newPrice} (from \$${doubleCheckPrice})!"
         # Watch out below...
-        if [[ $(echo $newPrice'<0.95*'$lastPrice | bc -l) -eq 1 ]]; then
-            notice "${productName} URL is ${shortURL}." # only shortens url if 5% or more
+        if [[ $(echo $newPrice'<0.95*'$doubleCheckPrice | bc -l) -eq 1 ]]; then
+            shortURL=$(shortenurl "$_urlOriginal")
+            notice "${productName} URL is ${shortURL}."
             notify-send "$productName has a new cheaper product at \$$newPrice!" \
-                        "The URL is $shortURL\nOld Product: \$$lastPrice \t New Product: \$$newPrice" \
+                        "The URL is $shortURL\nOld Product: \$$doubleCheckPrice \t New Product: \$$newPrice" \
                         -i emblem-default -u critical
         fi
-
-        # Exports values to db_new
-        echo "${newPrice},${_urlOriginal}" >> db_new.txt
-    # TODO: if price goes up, update last value but only notify if less than historic low
-    elif [[ $(echo $newPrice'>'$lastPrice | bc -l) -eq 1 ]]; then
-        notice "${productName} cheapest product has increased from \$${lastPrice} to \$${newPrice}."
-
+    elif [[ $(echo $newPrice'>'$lastPrice'&&'$newPrice'>'$doubleCheckPrice  | bc -l) -eq 1 || \
+            $(echo $newPrice'>'$lastPrice'&&'$newPrice'=='$doubleCheckPrice | bc -l) -eq 1 ]]; then
+        notice "${productName} probably has increased from \$${lastPrice} to \$${newPrice}."
+    elif [[ $(echo $newPrice'=='$lastPrice'&&'$newPrice'>'$doubleCheckPrice | bc -l) -eq 1 ]]; then
+        notice "${productName} cheapest product has increased from \$${doubleCheckPrice} to \$${newPrice}."
         # Watch out below...
-        if [[ $(echo $newPrice'>1.05*'$lastPrice | bc -l) -eq 1 ]]; then
+        if [[ $(echo $newPrice'>1.05*'$doubleCheckPrice | bc -l) -eq 1 ]]; then
             notify-send "$productName is now more expensive." \
-                        "Old Product: \$$lastPrice \t New Product: \$$newPrice" \
+                        "Old Product: \$$doubleCheckPrice \t New Product: \$$newPrice" \
                         -i emblem-default -u low
         fi
-
-        # Exports values to db_new
-        echo "${newPrice},${_urlOriginal}" >> db_new.txt
+    elif [[ $(echo $newPrice'=='$doubleCheckPrice | bc -l) -eq 1 ]]; then
+        info "${productName} has a product still at \$${doubleCheckPrice}."
+    elif [[ $(echo $newPrice'<'$lastPrice | bc -l) -eq 1 ]]; then
+        notice "${productName} probably has a new cheaper product at \$${newPrice} (from \$${lastPrice})."
+    elif [[ $(echo $newPrice'>'$lastPrice | bc -l) -eq 1 ]]; then
+        notice "${productName} probably has increased from \$${lastPrice} to \$${newPrice}."
     else
-        info "${productName} has a product still at \$${lastPrice}."
-        #OLD METHOD: [[ $showURLs == true ]] && shortURL=$(shortenurl "$_urlOriginal") && info "${productName} URL is ${shortURL}."
-
-        # Exports values to db_new
-        echo "${lastPrice},${_urlOriginal}" >> db_new.txt
+        emergency "Something went wrong! Values were writed anyways to db.txt"
     fi
+    echo "${_urlOriginal},${lastPrice},${newPrice}" >> db_new.txt
 done
 
 if [[ $showURLs == false ]]; then
