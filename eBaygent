@@ -13,6 +13,7 @@
 LOG_LEVEL="${LOG_LEVEL:-7}"
 __deps=( "sed" "grep" "wget" "realpath" "xdg-open" )
 
+### Just a comment
 #############################################################################
 ####### Funções e configurações (normalmente não é necessário editar) #######
 #############################################################################
