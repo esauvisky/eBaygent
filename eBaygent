@@ -156,7 +156,6 @@ for (( i = 0; i <= $(wc -l < db.txt); i++ )); do
     fi
 
     ## Loop until price is a valid number (for eventual wget problems)
-    # TODO: break on certain number of attempts
     while ! [[ $newPrice =~ ^[0-9]+([.][0-9]+)?$ ]]; do
         _wgetOutput=$(wget ${_urlCustomized} --save-cookies cookies.txt --keep-session-cookies --load-cookies cookies.txt -qO-)
 
