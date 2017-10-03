@@ -1,46 +1,85 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # Author: Emiliano Sauvisky
-# Description:
+# Description: Verifica menores preços em pesquisas do eBay periodicamente.
 
+import argparse
+import datetime
+import requests
+import pickle
+#import pprint
+from bs4 import BeautifulSoup
 
-def initializeDatabase():
-    pass
-
-
-def updatePrices():
-    pass
-
-
-def notifyChanges():
-    pass
+parser = argparse.ArgumentParser(description='Verifica menores preços em pesquisas do eBay periodicamente.')
+parser.add_argument('-a', '--add-url',
+                    help='adiciona a url ADD_URL ao banco de dados.')
+parser.add_argument('--auto-add', action='store_true',
+                    help='adiciona a url na seleção primária ao banco de dados')
+#parser.add_argument('-g', '--plot'
+args = parser.parse_args()
 
 
 if __name__ == '__main__':
-    initializeDatabase()
-    updatePrices()
-    notifyChanges()
+    # Carrega os cookies
+    # TODO: serializar isto aqui
+    cookies = {
+        # regexp para converter cookies.txt:
+        # find what: .* ([^ ]+) +([^ ]+)$
+        # replace with: '\1': '\2',
+        'npii': 'btguid/df0eebd715e0ab6b5521114fff9db58d5bb3edc6^cguid/' +
+                'df172dbb15e0ab1ddfe6d8cafe0cbbf95bb3edc6^',
+        'ds2': 'sotr/b7pQ5zzzzzzz^',
+        'ebay': '%5Esbf%3D%2340400000f00010000060210%5Ejs%3D1%5E',
+        'ns1':  'BAQAAAV7VO3kwAAaAANgAWFuz7cljODR8NjAxXjE1MDY5ODA4NTA' +
+                '3ODleXjBeMnw1fDR8N3w0Mnw0M3wxMHwzNnwxfDExXjFeNF40XjN' +
+                'eMTVeMTJeMl4xXjFeMF4wXjBeMV42NDQyNDU5MDc1gKYn8TvMKlTS8y8AUU+U9hiT9FA*',
+        'dp1':  'btzo/b459d2c859^u1p/QEBfX0BAX19AQA**5bb3edc9^bl/BRen-US' +
+                '5d952149^pbf/%230000000000000100020000005bb3edc9^',
+        's':    'CgAD4ACBZ1AvJZGYwZWViZDcxNWUwYWI2YjU1MjExMTRmZmY5ZGI1OGQA7gBv' +
+                'WdQLyTMGaHR0cHM6Ly93d3cuZWJheS5jb20vc2NoL2kuaHRtbD9fZnJvbT1SN' +
+                'DAmX3NhY2F0PTAmX25rdz0lMjJ1bmktdCUyMiUyMCUyMlVUMjEwRSUyMiUyMC' +
+                '1ua3RlY2gmX3BwcG49cjEmc2NwPWNlMAhGsS0*',
+        'nonsession': 'CgADLAAFZ0sFROQDKACBjOLvJZGYwZWViZDcxNWUwYWI2YjU1MjExMTRmZmY5ZGI1OGROqzuc'}
 
-    # Uma entrada na DB por pesquisa
-    # Cabeçalho: URL, Data1, Data2, ...
-    # Linha 1: URL Prod1, Preco1, Preco2, ...
-    # Linha 2: ...
+    # Carrega o banco de dados
+    try:
+        with open('db.pickle', 'rb') as database:
+            print('eBaygent: carregando o banco de dados... ', end='')
+            searches = pickle.load(database)
+            print(str(len(searches)) + ' entradas encontradas.')
+    except FileNotFoundError:
+        print('Atenção: o banco de dados não existe! Um novo banco de dados vazio será criado.')
+        searches = []
+        searches
+        with open('db.pickle', 'wb') as database:
+            pickle.dump(searches, database)
 
-    # Pesquisar melhor maneira de salvar este tipo de DB
-    # Ver stackexchange
+    # Atualizar Preços
+    for index, search in enumerate(searches):
+        print(index, search)
+        # Faz fetch da URL usando o dicionário de cookies
+        response = requests.get(search['url'], cookies=cookies, timeout=60)
 
-    # Usar o boilerplate completo
-    # ou Python
+        # Salva cada resposta html em um arquivo numerado (p/ debug)
+        f = open(str(index) + '.html', mode='w')
+        f.write(response.text)
+        f.close()
 
-    # ---- algoritmo basico ----/
-    # Adicionar data ao cabecalho da DB
-    # Para cada entrada/produto/linha:
-    # - wget URL
-    # - Extrair anúncios
-    # - Para cada anúncio,
-    # - -Verificar se é válido
-    # - - Se for válido, break e selecionar o anúncio
-    # - - Senao, continuar o loop
-    # - Se nenhum anúncio foi selecionado, error exit
-    # - Extrair o preço do anúncio selecionado
-    # - Adicionar ao banco de dados
-    pass
+        # Fazer uma sopa pra nóis
+        soup = BeautifulSoup(response.text, 'html.parser')
+        title = soup.title.string.replace(' | eBay', '')
+
+        # Deleta os anúncios multi-preços malditos
+        for priceranger in soup.select('span.prRange'):
+            priceranger.find_parent('ul').decompose()
+
+        # Retorna o primeiro anúncio encontrado
+        product = soup.select('ul.lvprices')[0]
+        # Retorna a string de dentro da tag do preço, sem as tags-filhas (se houver)
+        price = float(list(product.li.span.stripped_strings)[0].strip('$'))
+
+        # Adiciona o preço à lista de preços da pesquisa
+        search['prices'].append((datetime.datetime.now(), price))
+
+    # Salva no banco de dados
+    with open('db.pickle', 'wb') as database:
+        pickle.dump(searches, database)
