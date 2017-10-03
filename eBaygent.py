@@ -75,7 +75,7 @@ if __name__ == '__main__':
     # Faz loop pelas pesquisas e adiciona os preços atualizados
     for search in searches:
         # Faz fetch da URL usando o dicionário de cookies
-        print('[eBaygent] Obtendo a página ' + search['url'][:40] + '...')
+        print('[eBaygent] Obtendo a página http://[...]' + search['url'][37:67] + '...')
 
         response = requests.get(search['url'], cookies=cookies, timeout=60)
 
@@ -95,10 +95,21 @@ if __name__ == '__main__':
 
         # Retorna o primeiro anúncio encontrado
         product = soup.select('ul.lvprices')[0]
-        # Retorna a string de dentro da tag do preço, sem as tags-filhas (se houver)
+
+        # Extrai o preço. Somente a string da tag span, sem as tags-filhas
         price = float(list(product.li.span.stripped_strings)[0].strip('$'))
 
+        # Acrescenta o preço de shipping (se existente)
+        try:
+            shipping = float(list(list(product.select('li.lvshipping .ship .fee'))[0].stripped_strings)[0].replace(' shipping', '').strip('+$'))
+            price += shipping
+            if args.debug
+                print('[eBaygent] Custo de envio: ' + str(shipping))
+        except:
+            pass
+
         # Adiciona o preço à lista de preços da pesquisa
+        print('[eBaygent] Último preço: $' + str(price))
         search['prices'].append((datetime.datetime.now(), price))
 
     # Salva no banco de dados
