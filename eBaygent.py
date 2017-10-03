@@ -75,14 +75,14 @@ if __name__ == '__main__':
     # Faz loop pelas pesquisas e adiciona os preços atualizados
     for search in searches:
         # Faz fetch da URL usando o dicionário de cookies
-        print('[eBaygent] Obtendo a página http://[...]' + search['url'][37:67] + '...')
+        print('\n[eBaygent] Obtendo a página...') #http://[...]' + search['url'][37:67] + '...')
 
         response = requests.get(search['url'], cookies=cookies, timeout=60)
 
         # Fazer uma sopa pra nóis
         soup = BeautifulSoup(response.text, 'html.parser')
         title = soup.title.string.replace(' | eBay', '')
-        print('Termo de busca: ' + title)
+        print('[eBaygent] Termo de busca: ' + title)
 
         # Salva cada resposta html em um arquivo numerado
         if args.debug:
@@ -103,7 +103,7 @@ if __name__ == '__main__':
         try:
             shipping = float(list(list(product.select('li.lvshipping .ship .fee'))[0].stripped_strings)[0].replace(' shipping', '').strip('+$'))
             price += shipping
-            if args.debug
+            if args.debug:
                 print('[eBaygent] Custo de envio: ' + str(shipping))
         except:
             pass
