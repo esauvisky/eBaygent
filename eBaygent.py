@@ -1,24 +1,25 @@
 #!/usr/bin/env python
-# Author: Emiliano Sauvisky
-# Description: Verifica menores preços em pesquisas do eBay periodicamente.
+#Author: Emiliano Sauvisky <esauvisky@gmail.com>.
+#Description: Verifica menores preços em pesquisas do eBay periodicamente.
 
 import argparse
 import datetime
 import requests
 import pickle
-#import pprint
+import pprint
 from bs4 import BeautifulSoup
 
-parser = argparse.ArgumentParser(description='Verifica menores preços em pesquisas do eBay periodicamente.')
-parser.add_argument('-a', '--add-url',
-                    help='adiciona a url ADD_URL ao banco de dados.')
-parser.add_argument('--auto-add', action='store_true',
-                    help='adiciona a url na seleção primária ao banco de dados')
-#parser.add_argument('-g', '--plot'
-args = parser.parse_args()
-
-
 if __name__ == '__main__':
+    # Argumentos da linha de comando
+    parser = argparse.ArgumentParser(description='Verifica menores preços em pesquisas do eBay periodicamente.')
+    parser.add_argument('-a', '--add-url',
+                        help='adiciona a url ADD_URL ao banco de dados.')
+    # parser.add_argument('--auto-add', action='store_true',
+    #                     help='adiciona a url na seleção primária ao banco de dados')
+    parser.add_argument('--debug', action='store_true',
+                        help='adiciona a url na seleção primária ao banco de dados')
+    args = parser.parse_args()
+
     # Carrega os cookies
     # TODO: serializar isto aqui
     cookies = {
@@ -43,30 +44,50 @@ if __name__ == '__main__':
     # Carrega o banco de dados
     try:
         with open('db.pickle', 'rb') as database:
-            print('eBaygent: carregando o banco de dados... ', end='')
+            print('[eBaygent] Carregando o banco de dados...', end=' ')
             searches = pickle.load(database)
             print(str(len(searches)) + ' entradas encontradas.')
     except FileNotFoundError:
-        print('Atenção: o banco de dados não existe! Um novo banco de dados vazio será criado.')
+        print('[eBaygent] Atenção: o banco de dados não existe! Um novo banco de dados vazio será criado.')
         searches = []
-        searches
         with open('db.pickle', 'wb') as database:
             pickle.dump(searches, database)
+    except Exception as e:
+        print('\n[eBaygent] Erro: ocorreu algum problema ao carregar o banco de dados.')
+        raise e
 
-    # Atualizar Preços
-    for index, search in enumerate(searches):
-        print(index, search)
+    # Adiciona uma nova entrada no banco de dados
+    if args.add_url:
+        if any(args.add_url == search['url'] for search in searches):
+            raise Exception('Erro: a entrada já existe no banco de dados!')
+        else:
+            print('Adicionando URL ao banco de dados...')
+            searches.append({
+                'url': args.add_url,
+                'prices': []})
+
+    # Retorna searches se debug estiver ativado
+    if args.debug:
+        print('\nDicionário das pesquisas:')
+        pprint.pprint(searches)
+        print()
+
+    # Faz loop pelas pesquisas e adiciona os preços atualizados
+    for search in searches:
         # Faz fetch da URL usando o dicionário de cookies
-        response = requests.get(search['url'], cookies=cookies, timeout=60)
+        print('[eBaygent] Obtendo a página ' + search['url'][:40] + '...')
 
-        # Salva cada resposta html em um arquivo numerado (p/ debug)
-        f = open(str(index) + '.html', mode='w')
-        f.write(response.text)
-        f.close()
+        response = requests.get(search['url'], cookies=cookies, timeout=60)
 
         # Fazer uma sopa pra nóis
         soup = BeautifulSoup(response.text, 'html.parser')
         title = soup.title.string.replace(' | eBay', '')
+        print('Termo de busca: ' + title)
+
+        # Salva cada resposta html em um arquivo numerado
+        if args.debug:
+            with open(title + '.html', mode='w') as database:
+                database.write(response.text)
 
         # Deleta os anúncios multi-preços malditos
         for priceranger in soup.select('span.prRange'):
