@@ -69,13 +69,13 @@ if __name__ == '__main__':
     # Retorna searches se debug estiver ativado
     if args.debug:
         print('\nDicionário das pesquisas:')
-        pprint.pprint(searches)
+        pprint.pprint(searches["url"])
         print()
 
     # Faz loop pelas pesquisas e adiciona os preços atualizados
     for search in searches:
         # Faz fetch da URL usando o dicionário de cookies
-        print('\n[eBaygent] Obtendo a página...') #http://[...]' + search['url'][37:67] + '...')
+        print('\n[eBaygent] Obtendo a página...')
 
         response = requests.get(search['url'], cookies=cookies, timeout=60)
 
@@ -97,15 +97,15 @@ if __name__ == '__main__':
         product = soup.select('ul.lvprices')[0]
 
         # Extrai o preço. Somente a string da tag span, sem as tags-filhas
-        price = float(list(product.li.span.stripped_strings)[0].strip('$'))
+        price = round(float(list(product.li.span.stripped_strings)[0].strip('$')), 2)
 
         # Acrescenta o preço de shipping (se existente)
         try:
-            shipping = float(list(list(product.select('li.lvshipping .ship .fee'))[0].stripped_strings)[0].replace(' shipping', '').strip('+$'))
+            shipping = round(float(list(list(product.select('li.lvshipping .ship .fee'))[0].stripped_strings)[0].replace(' shipping', '').strip('+$')), 2)
             price += shipping
             if args.debug:
-                print('[eBaygent] Custo de envio: ' + str(shipping))
-        except:
+                print('[eBaygent] Custo de envio: $' + str(shipping))
+        except Exception:
             pass
 
         # Adiciona o preço à lista de preços da pesquisa
@@ -113,5 +113,6 @@ if __name__ == '__main__':
         search['prices'].append((datetime.datetime.now(), price))
 
     # Salva no banco de dados
+    print('[eBaygent] Salvando banco de dados...')
     with open('db.pickle', 'wb') as database:
         pickle.dump(searches, database)
