@@ -12,30 +12,31 @@ from bs4 import BeautifulSoup
 from tendo import singleton
 
 if __name__ == '__main__':
-    # Impede a execução simultânea de mais de uma instância
+    ## Impede a execução simultânea de mais de uma instância
     me = singleton.SingleInstance()
 
-    # Argumentos da linha de comando
+    ## Argumentos da linha de comando
     parser = argparse.ArgumentParser(description='Verifica menores preços em pesquisas do eBay periodicamente.')
     parser.add_argument('-a', '--add-url',
                         help='adiciona a url ADD_URL ao banco de dados.')
-    # TODO:
+    ## TODO: Adicionar direto da seleção primária ou clipboard
     # parser.add_argument('--auto-add', action='store_true',
     #                     help='adiciona a url na seleção primária ao banco de dados')
+    ## TODO: Deletar entradas
     parser.add_argument('--debug', action='store_true',
                         help='adiciona a url na seleção primária ao banco de dados')
     args = parser.parse_args()
 
-    # Imprime tracebacks somente se debug está ativado
+    ## Imprime tracebacks somente se debug está ativado
     if not args.debug:
         sys.tracebacklimit = None
 
-    # Inicializa o dicionário de Cookies
-    #   Regexp para converter cookies no formato do Netscape:
-    #       Find   : .* ([^ ]+) +([^ ]+)$
-    #       Replace: '\1': '\2',
-    # TODO: Serializar cookies
-    # TODO: Permitir importação automática de cookies no formato do Netscape
+    ## Inicializa o dicionário de Cookies
+    #       Regexp para converter cookies no formato do Netscape:
+    #           Find   : .* ([^ ]+) +([^ ]+)$
+    #           Replace: '\1': '\2',
+    ## TODO: Serializar cookies
+    ## TODO: Permitir importação automática de cookies no formato do Netscape
     cookies = {
         'npii':         'btguid/df0eebd715e0ab6b5521114fff9db58d5bb3edc6^cguid/' +
                         'df172dbb15e0ab1ddfe6d8cafe0cbbf95bb3edc6^',
@@ -52,7 +53,7 @@ if __name__ == '__main__':
                         '1ua3RlY2gmX3BwcG49cjEmc2NwPWNlMAhGsS0*',
         'nonsession':   'CgADLAAFZ0sFROQDKACBjOLvJZGYwZWViZDcxNWUwYWI2YjU1MjExMTRmZmY5ZGI1OGROqzuc'}
 
-    # Carrega o banco de dados
+    ## Carrega o banco de dados
     try:
         with open('db.pickle', 'rb') as database:
             print('[eBaygent] Carregando o banco de dados...', end=' ')
@@ -67,7 +68,7 @@ if __name__ == '__main__':
         print('\n[eBaygent] Erro: ocorreu algum problema ao carregar o banco de dados:')
         sys.exit(str(e) + '\n')
 
-    # Adiciona uma nova entrada no banco de dados
+    ## Adiciona uma nova entrada no banco de dados
     if args.add_url:
         if any(args.add_url == search['url'] for search in searches):
             raise Exception('Erro: a entrada já existe no banco de dados!')
@@ -77,43 +78,43 @@ if __name__ == '__main__':
                 'url': args.add_url,
                 'prices': []})
 
-    # Retorna searches se debug estiver ativado
+    ## Imprime searches[] se debug estiver ativado
     if args.debug:
         print('\nDicionário das pesquisas:')
-        pprint.pprint(searches["url"])
+        pprint.pprint(searches)
         print()
 
-    # Faz loop pelas pesquisas e adiciona os preços atualizados
+    ## Faz loop pelas pesquisas e adiciona os preços atualizados
     for search in searches:
-        # Faz fetch da URL usando o dicionário de cookies
+        ## Faz fetch da URL usando o dicionário de cookies
         print('\n[eBaygent] Obtendo a página...')
         try:
-            response = requests.get(search['url'], cookies=cookies, timeout=10)
+            response = requests.get(search['url'], cookies=cookies, timeout=30)
         except Exception as e:
             print('\n[eBaygent] Erro: ocorreu algum problema ao obter a página:')
             sys.exit(str(e) + '\n')
 
-        # Fazer uma sopa pra nóis
+        ## Fazer uma sopa pra nóis
         soup = BeautifulSoup(response.text, 'html.parser')
         title = soup.title.string.replace(' | eBay', '')
         print('[eBaygent] Termo de busca: ' + title)
 
-        # Salva cada resposta html em um arquivo numerado
+        ## Salva cada resposta html em um arquivo numerado
         if args.debug:
             with open(title + '.html', mode='w') as database:
                 database.write(response.text)
 
-        # Deleta os anúncios multi-preços malditos
+        ## Deleta os anúncios multi-preços malditos
         for priceranger in soup.select('span.prRange'):
             priceranger.find_parent('ul').decompose()
 
-        # Retorna o primeiro anúncio encontrado
+        ## Retorna o primeiro anúncio encontrado
         product = soup.select('ul.lvprices')[0]
 
-        # Extrai o preço. Somente a string da tag span, sem as tags-filhas
+        ## Extrai o preço. Somente a string da tag span, sem as tags-filhas
         price = round(float(list(product.li.span.stripped_strings)[0].strip('$')), 2)
 
-        # Acrescenta o preço de shipping (se existente)
+        ## Acrescenta o preço de shipping (se existente)
         try:
             shipping = round(float(list(list(product.select('li.lvshipping .ship .fee'))[0].stripped_strings)[0].replace(' shipping', '').strip('+$')), 2)
             price += shipping
@@ -122,11 +123,22 @@ if __name__ == '__main__':
         except Exception:
             pass
 
-        # Adiciona o preço à lista de preços da pesquisa
+        ## Adiciona o preço à lista de preços da pesquisa
         print('[eBaygent] Último preço: $' + str(price))
         search['prices'].append((datetime.datetime.now(), price))
 
-    # Salva no banco de dados
+        ## Verifica se há um produto mais barato e notifica o usuário
+        last1Price = search['prices'][-1][1]
+        last2Price = search['prices'][-2][1]
+        last3Price = search['prices'][-3][1]
+        # Histerese para evitar anúncios intermitentes
+        if last1Price == last2Price:
+            if last1Price < last3Price:
+                print('[eBaygent] Um produto mais barato foi encontrado!')
+                print('[eBaygent] Preço antigo: $' + last3Price)
+                print('[eBaygent] Preço novo  : $' + last1Price)
+
+    ## Salva no banco de dados
     print('[eBaygent] Salvando banco de dados...')
     with open('db.pickle', 'wb') as database:
         pickle.dump(searches, database)
