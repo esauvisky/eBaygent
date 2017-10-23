@@ -66,6 +66,7 @@ if __name__ == '__main__':
             pickle.dump(searches, database)
     except Exception as e:
         print('\n[eBaygent] Erro: ocorreu algum problema ao carregar o banco de dados:')
+        del me  # Fix para tendo.singleton
         sys.exit(str(e) + '\n')
 
     ## Adiciona uma nova entrada no banco de dados
@@ -92,6 +93,7 @@ if __name__ == '__main__':
             response = requests.get(search['url'], cookies=cookies, timeout=30)
         except Exception as e:
             print('\n[eBaygent] Erro: ocorreu algum problema ao obter a página:')
+            del me  # Fix para tendo.singleton
             sys.exit(str(e) + '\n')
 
         ## Fazer uma sopa pra nóis
@@ -112,16 +114,17 @@ if __name__ == '__main__':
         product = soup.select('ul.lvprices')[0]
 
         ## Extrai o preço. Somente a string da tag span, sem as tags-filhas
-        price = round(float(list(product.li.span.stripped_strings)[0].strip('$')), 2)
+        price = float(list(product.li.span.stripped_strings)[0].strip('$'))
 
         ## Acrescenta o preço de shipping (se existente)
         try:
-            shipping = round(float(list(list(product.select('li.lvshipping .ship .fee'))[0].stripped_strings)[0].replace(' shipping', '').strip('+$')), 2)
-            price += shipping
-            if args.debug:
-                print('[eBaygent] Custo de envio: $' + str(shipping))
+            shipping = float(list(list(product.select('li.lvshipping .ship .fee'))[0].stripped_strings)[0].replace(' shipping', '').strip('+$'))
+            #if args.debug:
+            print('[eBaygent] Custo produto : $' + str(price))
+            print('[eBaygent] Custo de envio: $' + str(shipping))
+            price = round(price + shipping, 2)
         except Exception:
-            pass
+            price = round(price)
 
         ## Adiciona o preço à lista de preços da pesquisa
         print('[eBaygent] Último preço: $' + str(price))
@@ -135,10 +138,21 @@ if __name__ == '__main__':
         if last1Price == last2Price:
             if last1Price < last3Price:
                 print('[eBaygent] Um produto mais barato foi encontrado!')
-                print('[eBaygent] Preço antigo: $' + last3Price)
-                print('[eBaygent] Preço novo  : $' + last1Price)
+                print('[eBaygent] Preço antigo: $' + str(last3Price))
+                print('[eBaygent] Preço novo  : $' + str(last1Price))
+                print('[eBaygent] URL: ' + search['url'])
+                # TODO: substituir código abaixo por uma notificação nativa do sistema
+                with open('produtos_baratos.txt', 'a') as myfile:
+                    myfile.write('Um produto mais barato foi encontrado para ' + title + '\n')
+                    myfile.write('Preço antigo: $' + str(last3Price) + '\n')
+                    myfile.write('Preço novo  : $' + str(last1Price) + '\n')
+                    myfile.write('URL: ' + search['url'] + '\n\n')
+
 
     ## Salva no banco de dados
     print('[eBaygent] Salvando banco de dados...')
     with open('db.pickle', 'wb') as database:
         pickle.dump(searches, database)
+
+    ## FIXME: fix temporário para não exibir exception de tendo.singleton
+    del me
