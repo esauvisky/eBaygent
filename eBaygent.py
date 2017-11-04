@@ -2,15 +2,23 @@
 # Author: Emiliano Sauvisky <esauvisky@gmail.com>.
 # Description: Verifica menores preços em pesquisas do eBay periodicamente.
 
+import os
+dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 import argparse
 import datetime
 import requests
 import pickle
 import pprint
+#from subprocess import call
+import gi
+gi.require_version('Notify', '0.7')
+from gi.repository import Notify
 from bs4 import BeautifulSoup
 from tendo import singleton
 
+
+#### Código Principal
 if __name__ == '__main__':
     ## Impede a execução simultânea de mais de uma instância
     me = singleton.SingleInstance()
@@ -22,7 +30,8 @@ if __name__ == '__main__':
     ## TODO: Adicionar direto da seleção primária ou clipboard
     # parser.add_argument('--auto-add', action='store_true',
     #                     help='adiciona a url na seleção primária ao banco de dados')
-    ## TODO: Deletar entradas
+    ## TODO: Deletar pesquisas
+    ## TODO: Editar links
     parser.add_argument('--debug', action='store_true',
                         help='adiciona a url na seleção primária ao banco de dados')
     args = parser.parse_args()
@@ -30,6 +39,10 @@ if __name__ == '__main__':
     ## Imprime tracebacks somente se debug está ativado
     if not args.debug:
         sys.tracebacklimit = None
+
+    ## Inicia libnotify
+    Notify.init('eBaygent')
+
 
     ## Inicializa o dicionário de Cookies
     #       Regexp para converter cookies no formato do Netscape:
@@ -124,7 +137,7 @@ if __name__ == '__main__':
             print('[eBaygent] Custo de envio: $' + str(shipping))
             price = round(price + shipping, 2)
         except Exception:
-            price = round(price)
+            price = round(price, 2)
 
         ## Adiciona o preço à lista de preços da pesquisa
         print('[eBaygent] Último preço: $' + str(price))
@@ -136,23 +149,48 @@ if __name__ == '__main__':
         last3Price = search['prices'][-3][1]
         # Histerese para evitar anúncios intermitentes
         if last1Price == last2Price:
-            if last1Price < last3Price:
+            # Se o último preço for menor que 95% do preço anterior
+            if last1Price <= (last3Price * 0.95):
                 print('[eBaygent] Um produto mais barato foi encontrado!')
                 print('[eBaygent] Preço antigo: $' + str(last3Price))
                 print('[eBaygent] Preço novo  : $' + str(last1Price))
                 print('[eBaygent] URL: ' + search['url'])
-                # TODO: substituir código abaixo por uma notificação nativa do sistema
-                with open('produtos_baratos.txt', 'a') as myfile:
-                    myfile.write('Um produto mais barato foi encontrado para ' + title + '\n')
-                    myfile.write('Preço antigo: $' + str(last3Price) + '\n')
-                    myfile.write('Preço novo  : $' + str(last1Price) + '\n')
-                    myfile.write('URL: ' + search['url'] + '\n\n')
+                # Cria a notificação
+                notification = Notify.Notification.new(title + ' tem um produto mais barato! :D',
+                                                       'URL: ' + search['url'] +
+                                                       'Preço antigo: $' + str(last3Price) + '\t' +
+                                                       'Preço novo  : $' + str(last1Price) + '\n',
+                                                       dir + '/price_down.png')
 
+                # Seta a urgência máxima
+                notification.set_urgency(2)
+                # Mostra a notificação
+                notification.show()
+            # Se o último preço for maior que 105% do preço anterior
+            elif last1Price >= (last3Price * 1.05):
+                print('[eBaygent] O produto mais barato agora está mais caro.')
+                print('[eBaygent] Preço antigo: $' + str(last3Price))
+                print('[eBaygent] Preço novo  : $' + str(last1Price))
+                print('[eBaygent] URL: ' + search['url'])
+                # Cria a notificação
+                notification = Notify.Notification.new(title + ' ficou mais caro... :(',
+                                                       'URL: ' + search['url'] +
+                                                       'Preço antigo: $' + str(last3Price) + '\t' +
+                                                       'Preço novo  : $' + str(last1Price) + '\n',
+                                                       dir + '/price_up.png')
+                # Seta a urgência padrão
+                notification.set_urgency(1)
+                # Mostra a notificação
+                notification.show()
 
     ## Salva no banco de dados
-    print('[eBaygent] Salvando banco de dados...')
+    print('\n[eBaygent] Salvando banco de dados...')
     with open('db.pickle', 'wb') as database:
         pickle.dump(searches, database)
 
-    ## FIXME: fix temporário para não exibir exception de tendo.singleton
+    ## Termina o objeto do libnotify
+    # FIXME: gera alertas Glib-Gobject
+    #Notify.uninit()
+
+    ## Bodge para não exibir exception de tendo.singleton
     del me
