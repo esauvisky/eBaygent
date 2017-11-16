@@ -3,7 +3,6 @@
 # Description: Verifica menores preços em pesquisas do eBay periodicamente.
 
 import os
-dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 import argparse
 import datetime
@@ -65,6 +64,12 @@ if __name__ == '__main__':
                         'DAmX3NhY2F0PTAmX25rdz0lMjJ1bmktdCUyMiUyMCUyMlVUMjEwRSUyMiUyMC' +
                         '1ua3RlY2gmX3BwcG49cjEmc2NwPWNlMAhGsS0*',
         'nonsession':   'CgADLAAFZ0sFROQDKACBjOLvJZGYwZWViZDcxNWUwYWI2YjU1MjExMTRmZmY5ZGI1OGROqzuc'}
+
+
+    ## Muda o diretório atual para o diretório de trabalho do eBaygent
+    dir = os.path.dirname(os.path.abspath(__file__))
+    #print('Diretório de trabalho: ' + dir)
+    os.chdir(dir)
 
     ## Carrega o banco de dados
     try:
@@ -157,10 +162,10 @@ if __name__ == '__main__':
                 print('[eBaygent] URL: ' + search['url'])
                 # Cria a notificação
                 notification = Notify.Notification.new(title + ' tem um produto mais barato! :D',
-                                                       'URL: ' + search['url'] +
+                                                       'URL: ' + search['url'] + '\n\n'
                                                        'Preço antigo: $' + str(last3Price) + '\t' +
-                                                       'Preço novo  : $' + str(last1Price) + '\n',
-                                                       dir + '/price_down.png')
+                                                       'Preço novo  : $' + str(last1Price),
+                                                       '/price_down.png')
 
                 # Seta a urgência máxima
                 notification.set_urgency(2)
@@ -174,10 +179,10 @@ if __name__ == '__main__':
                 print('[eBaygent] URL: ' + search['url'])
                 # Cria a notificação
                 notification = Notify.Notification.new(title + ' ficou mais caro... :(',
-                                                       'URL: ' + search['url'] +
+                                                       'URL: ' + search['url'] + '\n\n'
                                                        'Preço antigo: $' + str(last3Price) + '\t' +
-                                                       'Preço novo  : $' + str(last1Price) + '\n',
-                                                       dir + '/price_up.png')
+                                                       'Preço novo  : $' + str(last1Price),
+                                                       '/price_up.png')
                 # Seta a urgência padrão
                 notification.set_urgency(1)
                 # Mostra a notificação
