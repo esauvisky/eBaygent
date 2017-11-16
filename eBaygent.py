@@ -26,13 +26,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Verifica menores preços em pesquisas do eBay periodicamente.')
     parser.add_argument('-a', '--add-url',
                         help='adiciona a url ADD_URL ao banco de dados.')
-    ## TODO: Adicionar direto da seleção primária ou clipboard
+    # TODO: Adicionar direto da seleção primária ou clipboard
     # parser.add_argument('--auto-add', action='store_true',
     #                     help='adiciona a url na seleção primária ao banco de dados')
-    ## TODO: Deletar pesquisas
-    ## TODO: Editar links
+    parser.add_argument('-d', '--delete-url',
+                        help='remove a url DELETE_URL do banco de dados.')
     parser.add_argument('--debug', action='store_true',
-                        help='adiciona a url na seleção primária ao banco de dados')
+                        help='aumenta o nível de verbosidade para debug.')
     args = parser.parse_args()
 
     ## Imprime tracebacks somente se debug está ativado
@@ -42,34 +42,20 @@ if __name__ == '__main__':
     ## Inicia libnotify
     Notify.init('eBaygent')
 
-
-    ## Inicializa o dicionário de Cookies
-    #       Regexp para converter cookies no formato do Netscape:
-    #           Find   : .* ([^ ]+) +([^ ]+)$
-    #           Replace: '\1': '\2',
-    ## TODO: Serializar cookies
-    ## TODO: Permitir importação automática de cookies no formato do Netscape
-    cookies = {
-        'npii':         'btguid/df0eebd715e0ab6b5521114fff9db58d5bb3edc6^cguid/' +
-                        'df172dbb15e0ab1ddfe6d8cafe0cbbf95bb3edc6^',
-        'ds2':          'sotr/b7pQ5zzzzzzz^',
-        'ebay':         '%5Esbf%3D%2340400000f00010000060210%5Ejs%3D1%5E',
-        'ns1':          'BAQAAAV7VO3kwAAaAANgAWFuz7cljODR8NjAxXjE1MDY5ODA4NTA' +
-                        '3ODleXjBeMnw1fDR8N3w0Mnw0M3wxMHwzNnwxfDExXjFeNF40XjN' +
-                        'eMTVeMTJeMl4xXjFeMF4wXjBeMV42NDQyNDU5MDc1gKYn8TvMKlTS8y8AUU+U9hiT9FA*',
-        'dp1':          'btzo/b459d2c859^u1p/QEBfX0BAX19AQA**5bb3edc9^bl/BRen-US' +
-                        '5d952149^pbf/%230000000000000100020000005bb3edc9^',
-        's':            'CgAD4ACBZ1AvJZGYwZWViZDcxNWUwYWI2YjU1MjExMTRmZmY5ZGI1OGQA7gBv' +
-                        'WdQLyTMGaHR0cHM6Ly93d3cuZWJheS5jb20vc2NoL2kuaHRtbD9fZnJvbT1SN' +
-                        'DAmX3NhY2F0PTAmX25rdz0lMjJ1bmktdCUyMiUyMCUyMlVUMjEwRSUyMiUyMC' +
-                        '1ua3RlY2gmX3BwcG49cjEmc2NwPWNlMAhGsS0*',
-        'nonsession':   'CgADLAAFZ0sFROQDKACBjOLvJZGYwZWViZDcxNWUwYWI2YjU1MjExMTRmZmY5ZGI1OGROqzuc'}
-
-
     ## Muda o diretório atual para o diretório de trabalho do eBaygent
     dir = os.path.dirname(os.path.abspath(__file__))
     #print('Diretório de trabalho: ' + dir)
     os.chdir(dir)
+
+    ## Carrega o dicionário de Cookies
+    try:
+        with open('cookies.pickle', 'rb') as cookies_database:
+            print('[eBaygent] Carregando cookies...')
+            cookies = pickle.load(cookies_database)
+    except Exception as e:
+        print('[eBaygent] Erro: ocorreu algum problema ao carregar os cookies:')
+        del me  # Fix para tendo.singleton
+        sys.exit(str(e) + '\n')
 
     ## Carrega o banco de dados
     try:
@@ -165,7 +151,7 @@ if __name__ == '__main__':
                                                        'URL: ' + search['url'] + '\n\n'
                                                        'Preço antigo: $' + str(last3Price) + '\t' +
                                                        'Preço novo  : $' + str(last1Price),
-                                                       '/price_down.png')
+                                                       'price_down.png')
 
                 # Seta a urgência máxima
                 notification.set_urgency(2)
@@ -182,7 +168,7 @@ if __name__ == '__main__':
                                                        'URL: ' + search['url'] + '\n\n'
                                                        'Preço antigo: $' + str(last3Price) + '\t' +
                                                        'Preço novo  : $' + str(last1Price),
-                                                       '/price_up.png')
+                                                       'price_up.png')
                 # Seta a urgência padrão
                 notification.set_urgency(1)
                 # Mostra a notificação
