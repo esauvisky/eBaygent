@@ -8,7 +8,7 @@ import argparse
 import datetime
 import requests
 import pickle
-import pprint
+#import pprint
 #from subprocess import call
 import gi
 gi.require_version('Notify', '0.7')
@@ -24,13 +24,15 @@ if __name__ == '__main__':
 
     ## Argumentos da linha de comando
     parser = argparse.ArgumentParser(description='Verifica menores preços em pesquisas do eBay periodicamente.')
+    parser.add_argument('-l', '--list-urls', action='store_true',
+                        help='lista as URLs existentes no banco de dados.')
     parser.add_argument('-a', '--add-url',
-                        help='adiciona a url ADD_URL ao banco de dados.')
+                        help='adiciona a URL ao banco de dados.')
     # TODO: Adicionar direto da seleção primária ou clipboard
     # parser.add_argument('--auto-add', action='store_true',
     #                     help='adiciona a url na seleção primária ao banco de dados')
     parser.add_argument('-d', '--delete-url',
-                        help='remove a url DELETE_URL do banco de dados.')
+                        help='remove a URL do banco de dados.')
     parser.add_argument('--debug', action='store_true',
                         help='aumenta o nível de verbosidade para debug.')
     args = parser.parse_args()
@@ -73,21 +75,28 @@ if __name__ == '__main__':
         del me  # Fix para tendo.singleton
         sys.exit(str(e) + '\n')
 
+    ## Lista as entradas do banco de dados
+    if args.list_urls:
+        for search in searches:
+            print(search['url'])
+
     ## Adiciona uma nova entrada no banco de dados
     if args.add_url:
         if any(args.add_url == search['url'] for search in searches):
             raise Exception('Erro: a entrada já existe no banco de dados!')
         else:
-            print('Adicionando URL ao banco de dados...')
+            print('[eBaygent] Adicionando URL ao banco de dados...')
             searches.append({
                 'url': args.add_url,
                 'prices': []})
 
-    ## Imprime searches[] se debug estiver ativado
-    if args.debug:
-        print('\nDicionário das pesquisas:')
-        pprint.pprint(searches)
-        print()
+    ## Remove uma entrada do banco de dados
+    if args.delete_url:
+        if any(args.delete_url == search['url'] for search in searches):
+            searches[:] = [d for d in searches if d.get('url') != args.delete_url]
+            print('[eBaygent] A URL foi removida do banco de dados.')
+        else:
+            print('[eBaygent] A URL requisitada não existe no banco de dados.')
 
     ## Faz loop pelas pesquisas e adiciona os preços atualizados
     for search in searches:
@@ -135,44 +144,45 @@ if __name__ == '__main__':
         search['prices'].append((datetime.datetime.now(), price))
 
         ## Verifica se há um produto mais barato e notifica o usuário
-        last1Price = search['prices'][-1][1]
-        last2Price = search['prices'][-2][1]
-        last3Price = search['prices'][-3][1]
-        # Histerese para evitar anúncios intermitentes
-        if last1Price == last2Price:
-            # Se o último preço for menor que 95% do preço anterior
-            if last1Price <= (last3Price * 0.95):
-                print('[eBaygent] Um produto mais barato foi encontrado!')
-                print('[eBaygent] Preço antigo: $' + str(last3Price))
-                print('[eBaygent] Preço novo  : $' + str(last1Price))
-                print('[eBaygent] URL: ' + search['url'])
-                # Cria a notificação
-                notification = Notify.Notification.new(title + ' tem um produto mais barato! :D',
-                                                       'URL: ' + search['url'] + '\n\n'
-                                                       'Preço antigo: $' + str(last3Price) + '\t' +
-                                                       'Preço novo  : $' + str(last1Price),
-                                                       'price_down.png')
+        if len(search['prices']) >= 3:
+            last1Price = search['prices'][-1][1]
+            last2Price = search['prices'][-2][1]
+            last3Price = search['prices'][-3][1]
+            # Histerese para evitar anúncios intermitentes
+            if last1Price == last2Price:
+                # Se o último preço for menor que 95% do preço anterior
+                if last1Price <= (last3Price * 0.95):
+                    print('[eBaygent] Um produto mais barato foi encontrado!')
+                    print('[eBaygent] Preço antigo: $' + str(last3Price))
+                    print('[eBaygent] Preço novo  : $' + str(last1Price))
+                    print('[eBaygent] URL: ' + search['url'])
+                    # Cria a notificação
+                    notification = Notify.Notification.new(title + ' tem um produto mais barato! :D',
+                                                           'URL: ' + search['url'] + '\n\n'
+                                                           'Preço antigo: $' + str(last3Price) + '\t' +
+                                                           'Preço novo  : $' + str(last1Price),
+                                                           'price_down.png')
 
-                # Seta a urgência máxima
-                notification.set_urgency(2)
-                # Mostra a notificação
-                notification.show()
-            # Se o último preço for maior que 105% do preço anterior
-            elif last1Price >= (last3Price * 1.05):
-                print('[eBaygent] O produto mais barato agora está mais caro.')
-                print('[eBaygent] Preço antigo: $' + str(last3Price))
-                print('[eBaygent] Preço novo  : $' + str(last1Price))
-                print('[eBaygent] URL: ' + search['url'])
-                # Cria a notificação
-                notification = Notify.Notification.new(title + ' ficou mais caro... :(',
-                                                       'URL: ' + search['url'] + '\n\n'
-                                                       'Preço antigo: $' + str(last3Price) + '\t' +
-                                                       'Preço novo  : $' + str(last1Price),
-                                                       'price_up.png')
-                # Seta a urgência padrão
-                notification.set_urgency(1)
-                # Mostra a notificação
-                notification.show()
+                    # Seta a urgência máxima
+                    notification.set_urgency(2)
+                    # Mostra a notificação
+                    notification.show()
+                # Se o último preço for maior que 105% do preço anterior
+                elif last1Price >= (last3Price * 1.05):
+                    print('[eBaygent] O produto mais barato agora está mais caro.')
+                    print('[eBaygent] Preço antigo: $' + str(last3Price))
+                    print('[eBaygent] Preço novo  : $' + str(last1Price))
+                    print('[eBaygent] URL: ' + search['url'])
+                    # Cria a notificação
+                    notification = Notify.Notification.new(title + ' ficou mais caro... :(',
+                                                           'URL: ' + search['url'] + '\n\n'
+                                                           'Preço antigo: $' + str(last3Price) + '\t' +
+                                                           'Preço novo  : $' + str(last1Price),
+                                                           'price_up.png')
+                    # Seta a urgência padrão
+                    notification.set_urgency(1)
+                    # Mostra a notificação
+                    notification.show()
 
     ## Salva no banco de dados
     print('\n[eBaygent] Salvando banco de dados...')
